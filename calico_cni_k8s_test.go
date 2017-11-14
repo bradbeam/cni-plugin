@@ -301,6 +301,79 @@ var _ = Describe("CalicoCni", func() {
 				})
 			})
 
+			Context("using floatingIPs annotation to assign a DNAT", func() {
+				It("successfully assigns a DNAT IP address from the annotated floatingIP", func() {
+					netconfCalicoIPAM := fmt.Sprintf(`
+				{
+						"cniVersion": "%s",
+					"name": "net11",
+					"type": "calico",
+					"etcd_endpoints": "http://%s:2379",
+					"datastore_type": "%s",
+					"ipam": {
+						 "type": "calico-ipam"
+							 },
+					"kubernetes": {
+						"k8s_api_root": "http://127.0.0.1:8080"
+					 },
+					"policy": {"type": "k8s"},
+					"log_level":"info"
+				}`, cniVersion, os.Getenv("ETCD_IP"), os.Getenv("DATASTORE_TYPE"))
+
+					// Create a new ipPool.
+					ipPool := "172.16.0.0/16"
+
+					testutils.MustCreateNewIPPool(calicoClient, ipPool, false, false, true)
+					_, _, err := net.ParseCIDR(ipPool)
+					Expect(err).NotTo(HaveOccurred())
+
+					config, err := clientcmd.DefaultClientConfig.ClientConfig()
+					Expect(err).NotTo(HaveOccurred())
+
+					clientset, err := kubernetes.NewForConfig(config)
+					Expect(err).NotTo(HaveOccurred())
+
+					// Now create a K8s pod passing in a floating IP.
+					name := fmt.Sprintf("run%d", rand.Uint32())
+					pod, err := clientset.CoreV1().Pods(testutils.K8S_TEST_NS).Create(&v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: name,
+							Annotations: map[string]string{
+								"cni.projectcalico.org/floatingIPs": "[\"1.1.1.1\"]",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{{
+								Name:  name,
+								Image: "ignore",
+							}},
+							NodeName: hostname,
+						},
+					})
+					Expect(err).NotTo(HaveOccurred())
+
+					log.Infof("Created POD object: %v", pod)
+
+					_, _, _, contAddresses, _, contNs, err := testutils.CreateContainer(netconfCalicoIPAM, name, testutils.K8S_TEST_NS, "")
+					Expect(err).NotTo(HaveOccurred())
+
+					podIP := contAddresses[0].IP
+
+					// Assert that the endpoint is created
+					endpoints, err := calicoClient.WorkloadEndpoints().List(ctx, options.ListOptions{})
+					Expect(err).ShouldNot(HaveOccurred())
+					Expect(endpoints.Items).Should(HaveLen(1))
+
+					// Assert that the endpoint contains the appropriate DNAT
+					Expect(endpoints.Items[0].Spec.IPNATs).Should(HaveLen(1))
+					Expect(endpoints.Items[0].Spec.IPNATs).Should(Equal([]api.IPNAT{api.IPNAT{InternalIP: podIP.String() + "/32", ExternalIP: "1.1.1.1"}}))
+
+					// Delete the container.
+					_, err = testutils.DeleteContainer(netconfCalicoIPAM, contNs.Path(), name, testutils.K8S_TEST_NS)
+					Expect(err).ShouldNot(HaveOccurred())
+				})
+			})
+
 			Context("using ipAddrsNoIpam annotation to assign IP address to a pod, bypassing IPAM", func() {
 				It("should successfully assigns the annotated IP address", func() {
 					netconfCalicoIPAM := fmt.Sprintf(`

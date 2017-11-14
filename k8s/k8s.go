@@ -255,6 +255,23 @@ func CmdAddK8s(args *skel.CmdArgs, conf utils.NetConf, nodename string, calicoCl
 			endpoint.Spec.Profiles = []string{conf.Name}
 		}
 
+		// List of DNAT ipaddrs to map to this workload endpoint
+		floatingIPs := annot["cni.projectcalico.org/floatingIPs"]
+
+		if floatingIPs != "" {
+			ips, err := parseIPAddrs(floatingIPs, logger)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, ip := range ips {
+				endpoint.Spec.IPNATs = append(endpoint.Spec.IPNATs, api.IPNAT{
+					InternalIP: result.IPs[0].Address.String(),
+					ExternalIP: ip,
+				})
+			}
+		}
+
 		// Populate the endpoint with the output from the IPAM plugin.
 		if err = utils.PopulateEndpointNets(endpoint, result); err != nil {
 			// Cleanup IP allocation and return the error.

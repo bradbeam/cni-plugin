@@ -259,16 +259,17 @@ func CmdAddK8s(args *skel.CmdArgs, conf utils.NetConf, nodename string, calicoCl
 		floatingIPs := annot["cni.projectcalico.org/floatingIPs"]
 
 		if floatingIPs != "" {
-			//ips, err := parseIPAddrs(floatingIPs, logger)
 			ips, err := validateAndExtractIPs(floatingIPs, "cni.projectcalico.org/floatingIPs", logger)
 			if err != nil {
 				return nil, err
 			}
 
+			logger.Infof("Result for DNAT: %+v", result)
 			for _, ip := range ips {
+				logger.Debugf("InternalIP for DNAT set to: %s, ExternalIP for DNAT set to: %s", result.IPs[0].Address.String(), ip.String())
 				endpoint.Spec.IPNATs = append(endpoint.Spec.IPNATs, api.IPNAT{
-					InternalIP: *cnet.ParseIP(result.IPs[0].Address.String()),
-					ExternalIP: *cnet.ParseIP(ip.String()),
+					InternalIP: cnet.MustParseIP(strings.Split(result.IPs[0].Address.String(), "/")[0]),
+					ExternalIP: cnet.MustParseIP(ip.String()),
 				})
 			}
 		}

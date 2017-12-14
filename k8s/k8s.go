@@ -259,20 +259,41 @@ func CmdAddK8s(args *skel.CmdArgs, conf utils.NetConf, nodename string, calicoCl
 		floatingIPs := annot["cni.projectcalico.org/floatingIPs"]
 
 		if floatingIPs != "" {
-			ips, err := validateAndExtractIPs(floatingIPs, "cni.projectcalico.org/floatingIPs", logger)
+			//ips, err := validateAndExtractIPs(floatingIPs, "cni.projectcalico.org/floatingIPs", logger)
+			ips, err := parseIPAddrs(floatingIPs, logger)
 			if err != nil {
 				return nil, err
 			}
 
 			logger.Infof("Result for DNAT: %+v", result)
 			for _, ip := range ips {
-				logger.Debugf("InternalIP for DNAT set to: %s, ExternalIP for DNAT set to: %s", result.IPs[0].Address.String(), ip.String())
+				logger.Debugf("InternalIP for DNAT set to: %s, ExternalIP for DNAT set to: %s", result.IPs[0].Address.String(), ip)
 				endpoint.Spec.IPNATs = append(endpoint.Spec.IPNATs, api.IPNAT{
 					InternalIP: cnet.MustParseIP(strings.Split(result.IPs[0].Address.String(), "/")[0]),
-					ExternalIP: cnet.MustParseIP(ip.String()),
+					ExternalIP: cnet.MustParseIP(ip),
 				})
+				// k8s/k8s.go:273:46: cannot use "net".ParseIP(ip) (type "net".IP) as type string in argument to "github.com/projectcalico/cni-plugin/vendor/github.com/projectcalico/libcalico-go/lib/net".MustParseIP
 			}
 		}
+
+		/*
+			// List of DNAT ipaddrs to map to this workload endpoint
+			floatingIPs := annot["cni.projectcalico.org/floatingIPs"]
+
+			if floatingIPs != "" {
+				ips, err := parseIPAddrs(floatingIPs, logger)
+				if err != nil {
+					return nil, err
+				}
+
+				for _, ip := range ips {
+					endpoint.Spec.IPNATs = append(endpoint.Spec.IPNATs, api.IPNAT{
+						InternalIP: result.IPs[0].Address.String(),
+						ExternalIP: ip,
+					})
+				}
+			}
+		*/
 
 		// Populate the endpoint with the output from the IPAM plugin.
 		if err = utils.PopulateEndpointNets(endpoint, result); err != nil {
